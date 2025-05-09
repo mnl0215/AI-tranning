@@ -1,0 +1,167 @@
+1. 線性回歸（Linear Regression）
+適用場景：連續數值預測（如房價、銷售量）
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler  # 線性回歸建議標準化
+
+# 加載數據
+data = pd.read_csv("your_data.csv")
+X = data.drop("target", axis=1)  # 特徵
+y = data["target"]               # 連續型目標變量
+
+# 分割數據
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 標準化特徵（線性回歸對尺度敏感）
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# 初始化並訓練模型
+model = LinearRegression()  # 可添加參數如 fit_intercept=True
+model.fit(X_train_scaled, y_train)
+
+# 預測
+y_pred = model.predict(X_test_scaled)
+
+# 評估
+print(f"係數 (Coefficients): {model.coef_}")       # 各特徵權重
+print(f"截距 (Intercept): {model.intercept_:.2f}")  # 模型偏置項
+print(f"均方誤差 (MSE): {mean_squared_error(y_test, y_pred):.2f}")
+print(f"R² 分數: {r2_score(y_test, y_pred):.2f}")  # 解釋變異比例（越接近1越好）
+
+# 交叉驗證（檢查穩定性）
+from sklearn.model_selection import cross_val_score
+scores = cross_val_score(model, X_train_scaled, y_train, cv=5, scoring='r2')
+print(f"交叉驗證 R²: {scores.mean():.2f} (±{scores.std():.2f})")
+
+2. Logistic 回歸（分類）
+適用場景：二分類或多分類（如垃圾郵件檢測）
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, roc_auc_score
+
+# 數據準備（假設目標 y 是二元類別）
+# 若特徵尺度差異大，需標準化（使用 StandardScaler）
+
+# 初始化模型（添加正則化防止過擬合）
+model = LogisticRegression(
+    penalty='l2',        # 正則化類型（l1 或 l2）
+    C=1.0,               # 正則化強度（越小越強）
+    solver='lbfgs',      # 優化算法（對小數據集推薦）
+    max_iter=1000        # 增加迭代次數確保收斂
+)
+
+# 訓練
+model.fit(X_train_scaled, y_train)
+
+# 預測
+y_pred = model.predict(X_test_scaled)
+y_prob = model.predict_proba(X_test_scaled)[:, 1]  # 預測概率（用於 AUC）
+
+# 評估
+print(classification_report(y_test, y_pred))  # 輸出 Precision, Recall, F1
+print(f"AUC 分數: {roc_auc_score(y_test, y_prob):.2f}")
+
+# 調整超參數（GridSearchCV）
+from sklearn.model_selection import GridSearchCV
+param_grid = {'C': [0.001, 0.01, 0.1, 1, 10]}
+grid = GridSearchCV(LogisticRegression(), param_grid, cv=5, scoring='f1')
+grid.fit(X_train_scaled, y_train)
+print(f"最佳參數: {grid.best_params_}, 最佳 F1: {grid.best_score_:.2f}")
+
+3. KNN（K-最近鄰分類）
+適用場景：小型數據集、需要簡單基準模型
+
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import MinMaxScaler  # KNN 建議歸一化
+
+# 特徵歸一化（KNN 對距離敏感）
+scaler = MinMaxScaler()
+X_train_norm = scaler.fit_transform(X_train)
+X_test_norm = scaler.transform(X_test)
+
+# 選擇最佳 K 值（通過交叉驗證）
+best_k = 1
+best_score = 0
+for k in range(1, 15):
+    model = KNeighborsClassifier(n_neighbors=k)
+    scores = cross_val_score(model, X_train_norm, y_train, cv=5, scoring='accuracy')
+    if scores.mean() > best_score:
+        best_score = scores.mean()
+        best_k = k
+
+# 使用最佳 K 訓練
+model = KNeighborsClassifier(n_neighbors=best_k)
+model.fit(X_train_norm, y_train)
+
+# 評估
+print(f"最佳 K: {best_k}, 驗證準確率: {best_score:.2f}")
+print(classification_report(y_test, model.predict(X_test_norm)))
+
+4. 決策樹（Decision Tree）
+適用場景：可解釋性優先、非線性關係
+
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+
+# 初始化模型（控制過擬合）
+model = DecisionTreeClassifier(
+    max_depth=5,          # 限制樹深度
+    min_samples_split=10,  # 節點最少樣本數
+    criterion='gini'       # 或 'entropy'
+)
+
+model.fit(X_train, y_train)  # 樹模型不需要特徵縮放！
+
+# 可視化決策樹（需安裝 graphviz）
+plt.figure(figsize=(20,10))
+plot_tree(model, feature_names=X.columns, filled=True)
+plt.show()
+
+# 評估
+print(classification_report(y_test, model.predict(X_test)))
+
+# 特徵重要性分析
+importance = pd.Series(model.feature_importances_, index=X.columns)
+print("特徵重要性:\n", importance.sort_values(ascending=False))
+
+5. 隨機森林（Random Forest）
+適用場景：高準確率、抗過擬合
+
+from sklearn.ensemble import RandomForestClassifier
+
+# 初始化模型
+model = RandomForestClassifier(
+    n_estimators=100,      # 樹的數量
+    max_depth=10,          # 單棵樹最大深度
+    min_samples_split=5,   # 控制過擬合
+    random_state=42,       # 固定隨機性
+    n_jobs=-1              # 使用所有 CPU 核心加速
+)
+
+model.fit(X_train, y_train)  # 無需特徵縮放
+
+# 評估
+print(classification_report(y_test, model.predict(X_test)))
+
+# 超參數優化（GridSearchCV）
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [None, 10, 20],
+    'min_samples_split': [2, 5]
+}
+grid = GridSearchCV(RandomForestClassifier(), param_grid, cv=3, scoring='f1')
+grid.fit(X_train, y_train)
+print(f"最佳參數: {grid.best_params_}")
+
+"""
+模型	優點	缺點	適用場景
+線性回歸	解釋性強、計算快	只能捕捉線性關係	連續值預測
+Logistic 回歸	概率輸出、可正則化	線性決策邊界	二分類/多分類
+KNN	無需訓練、簡單	計算慢、對高維數據效果差	小數據集、局部模式
+決策樹	可視化、處理非線性	容易過擬合	可解釋性優先
+隨機森林	高準確率、抗過擬合	計算資源消耗大	通用分類/回歸
+"""

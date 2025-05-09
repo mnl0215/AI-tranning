@@ -1,0 +1,91 @@
+數據缺失處理
+
+import pandas as pd
+import numpy as np
+from sklearn.impute import SimpleImputer, KNNImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+import matplotlib.pyplot as plt
+
+# 加載數據（假設數據中有缺失值 NaN）
+data = pd.read_csv("your_data.csv")
+
+# 查看缺失值分佈
+print("缺失值統計：")
+print(data.isnull().sum())
+
+# 可視化缺失值（熱力圖）
+import seaborn as sns
+sns.heatmap(data.isnull(), cbar=False, cmap='viridis')
+plt.title("Missing Values Heatmap")
+plt.show()
+
+# --------------------------
+# **方法 1：直接刪除缺失樣本**
+# --------------------------
+# 適用場景：缺失比例極低（如 <5%），且缺失為隨機
+data_dropna = data.dropna(axis=0)  # axis=0 刪除行，axis=1 刪除列
+
+# --------------------------
+# **方法 2：簡單填充**
+# --------------------------
+# 數值型特徵
+imputer_mean = SimpleImputer(strategy='mean')  # 均值填充（適合正態分佈）
+imputer_median = SimpleImputer(strategy='median')  # 中位數填充（適合偏態分佈）
+
+# 類別型特徵
+imputer_mode = SimpleImputer(strategy='most_frequent')  # 眾數填充
+
+# 示例：填充數值列
+numeric_cols = data.select_dtypes(include=np.number).columns
+data[numeric_cols] = imputer_median.fit_transform(data[numeric_cols])
+
+# --------------------------
+# **方法 3：模型預測填充（高級）**
+# --------------------------
+# 方法 3.1：KNN 填充（基於相似樣本）
+imputer_knn = KNNImputer(n_neighbors=5)
+data_knn = pd.DataFrame(imputer_knn.fit_transform(data), columns=data.columns)
+
+# 方法 3.2：多重插補（MICE 算法）
+imputer_mice = IterativeImputer(max_iter=10, random_state=42)
+data_mice = pd.DataFrame(imputer_mice.fit_transform(data), columns=data.columns)
+
+# --------------------------
+# **方法 4：標記缺失值為新特徵**
+# --------------------------
+# 適用場景：缺失可能包含信息（如系統性缺失）
+for col in data.columns:
+    data[f'{col}_missing'] = data[col].isnull().astype(int)
+
+# 再進行簡單填充（如中位數）
+data.fillna(data.median(), inplace=True)
+
+# --------------------------
+# **方法 5：時間序列填充**
+# --------------------------
+# 適用場景：時間序列數據
+data['timestamp'] = pd.to_datetime(data['timestamp'])
+data.set_index('timestamp', inplace=True)
+data_filled = data.interpolate(method='time')  # 時間插值
+
+"""
+方法	優點	缺點	適用場景
+直接刪除	簡單快速	損失數據	缺失比例極低
+均值/中位數/眾數填充	保留樣本數量	忽略特徵關係	快速基準處理
+KNN 填充	利用相似樣本信息	計算成本高	數值型特徵且缺失非隨機
+多重插補 (MICE)	統計嚴謹，考慮不確定性	極耗時	高質量數據要求
+標記缺失為特徵	捕捉缺失模式	增加特徵維度	懷疑缺失與目標相關
+
+開始
+│
+├─ 分析缺失比例 → 若 >50% → 刪除特徵
+│
+├─ 判斷缺失機制 → 隨機缺失？ → 選擇填充方法
+│                  │
+│                  └─ 非隨機缺失 → 標記缺失為特徵
+│
+├─ 分類型處理 → 數值型用中位數/均值，類別型用眾數
+│
+└─ 高級場景 → 使用 KNN/MICE 插補
+"""
