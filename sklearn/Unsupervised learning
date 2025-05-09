@@ -1,0 +1,145 @@
+# ====================== 模板1: K-Means 聚類 ======================
+import pandas as pd
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
+
+# 加載數據
+data = pd.read_csv("your_data.csv")  # 替換為你的文件路徑
+X = data.select_dtypes(include=np.number)  # 自動選擇數值型特徵
+
+# 數據標準化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 肘部法則選擇最佳K值
+inertia = []
+k_range = range(1, 11)
+for k in k_range:
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    kmeans.fit(X_scaled)
+    inertia.append(kmeans.inertia_)
+
+# 繪製肘部圖
+plt.figure(figsize=(10,6))
+plt.plot(k_range, inertia, marker='o', linestyle='--')
+plt.xlabel("Number of Clusters (K)")
+plt.ylabel("Inertia")
+plt.title("Elbow Method for Optimal K Selection")
+plt.xticks(k_range)
+plt.show()
+
+# 手動選擇最佳K值（根據肘部圖形狀）
+best_k = 3  # 需要根據實際數據調整
+
+# 訓練K-Means模型
+kmeans = KMeans(n_clusters=best_k, random_state=42)
+clusters = kmeans.fit_predict(X_scaled)
+
+# 評估模型
+silhouette_avg = silhouette_score(X_scaled, clusters)
+print(f"輪廓係數(Silhouette Score): {silhouette_avg:.2f}")
+
+# 可視化結果（適用於2D數據）
+plt.figure(figsize=(10,6))
+plt.scatter(X_scaled[:, 0], X_scaled[:, 1], c=clusters, cmap='viridis', s=50, alpha=0.6)
+plt.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1], 
+            s=300, c='red', marker='X', label='Centroids')
+plt.title("K-Means Clustering Results")
+plt.legend()
+plt.show()
+
+# ====================== 模板2: PCA 主成分分析 ======================
+from sklearn.decomposition import PCA
+
+# 數據標準化（如果尚未標準化）
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 執行PCA
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)
+
+# 輸出方差解釋信息
+print("各主成分解釋方差比例:", pca.explained_variance_ratio_)
+print("累積解釋方差比例:", np.sum(pca.explained_variance_ratio_))
+
+# 可視化PCA結果
+plt.figure(figsize=(10,6))
+plt.scatter(X_pca[:, 0], X_pca[:, 1], alpha=0.6)
+plt.xlabel("Principal Component 1")
+plt.ylabel("Principal Component 2")
+plt.title("2D PCA Projection")
+plt.show()
+
+# 自動保留95%方差的PCA
+pca_auto = PCA(n_components=0.95)
+X_pca_auto = pca_auto.fit_transform(X_scaled)
+print(f"保留95%方差所需維度: {pca_auto.n_components_}")
+
+# ====================== 模板3: t-SNE 可視化 ======================
+from sklearn.manifold import TSNE
+
+# 數據標準化（如果尚未標準化）
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 執行t-SNE
+tsne = TSNE(
+    n_components=2,
+    perplexity=30,      # 調整此參數(通常5-50)
+    learning_rate=200,  # 調整此參數(通常10-1000)
+    random_state=42
+)
+X_tsne = tsne.fit_transform(X_scaled)
+
+# 可視化t-SNE結果
+plt.figure(figsize=(10,6))
+plt.scatter(X_tsne[:, 0], X_tsne[:, 1], alpha=0.6)
+plt.title("t-SNE 2D Projection")
+plt.xlabel("t-SNE Dimension 1")
+plt.ylabel("t-SNE Dimension 2")
+plt.show()
+代碼說明與使用技巧：
+
+數據預處理：
+
+所有模板均包含標準化步驟，確保特徵尺度一致
+
+使用select_dtypes自動選擇數值型特徵，避免類別型數據干擾
+
+每個模板可獨立運行，無需依賴其他模板的輸出
+
+參數調整建議：
+
+K-Means：通過肘部圖選擇K值時，需綜合考慮拐點位置與業務需求
+
+PCA：n_components可設為整數（指定維度）或小數（保留方差比例）
+
+t-SNE：perplexity控制局部結構敏感度，較大值關注全局結構
+
+可視化優化：
+
+添加了圖形尺寸(figsize)、透明度(alpha)等參數提升可視化效果
+
+在K-Means圖中明確標註質心位置
+
+所有圖形均包含完整的標籤和標題
+
+高級應用：
+
+可將PCA/t-SNE與K-Means結合，先降維再聚類
+
+對於非常大數據集，可考慮使用MiniBatchKMeans或PCA的增量學習
+
+使用流程：
+
+準備數據：確保數據文件為CSV格式，數值型特徵完整
+
+選擇模板：根據分析目標選擇合適的方法
+
+調整參數：特別是K值、perplexity等關鍵參數
+
+結果解讀：結合統計指標與可視化進行綜合分析
