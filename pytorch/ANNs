@@ -1,0 +1,218 @@
+# ====================== 神经网络基础组件 ======================
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+
+# 1. 数据准备（示例：二分类数据集）
+X, y = make_classification(n_samples=1000, n_features=20, n_classes=2, random_state=42)
+X = torch.tensor(X, dtype=torch.float32)
+y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
+
+# 划分训练集和测试集
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 2. 定义神经网络模型
+class BasicNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer1 = nn.Linear(20, 64)
+        self.activation = nn.ReLU()     # 激活函数
+        self.layer2 = nn.Linear(64, 1)
+        self.output = nn.Sigmoid()      # 输出层激活
+    
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.activation(x)
+        x = self.layer2(x)
+        return self.output(x)
+
+model = BasicNN()
+
+# 3. 配置训练参数
+criterion = nn.BCELoss()                # 二元交叉熵损失函数
+optimizer = optim.SGD(model.parameters(), lr=0.01)  # 随机梯度下降
+
+# 4. 训练循环
+epochs = 100
+train_losses = []
+
+for epoch in range(epochs):
+    # 前向传播
+    outputs = model(X_train)
+    loss = criterion(outputs, y_train)
+    
+    # 反向传播与优化
+    optimizer.zero_grad()
+    loss.backward()                     # 自动梯度计算
+    optimizer.step()                    # 参数更新
+    
+    # 记录训练损失
+    train_losses.append(loss.item())
+    
+    if (epoch+1) % 10 == 0:
+        print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}')
+
+# 5. 可视化训练过程
+plt.plot(train_losses)
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Curve')
+plt.show()
+
+# ====================== 深度神经网络模板 ======================
+# 1. 多层感知机（MLP）实现
+class MLP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(20, 256),
+            nn.ReLU(),
+            nn.Dropout(0.2),           # 防止过拟合
+            nn.Linear(256, 128),
+            nn.BatchNorm1d(128),       # 批量归一化
+            nn.ReLU(),
+            nn.Linear(128, 1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        return self.layers(x)
+
+# 2. 高级优化器配置
+model = MLP()
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(),  # Adam优化器
+                      lr=0.001, 
+                      weight_decay=1e-4)   # L2正则化
+
+# 3. 学习率调度器
+scheduler = optim.lr_scheduler.StepLR(optimizer, 
+                                     step_size=30, 
+                                     gamma=0.1)  # 每30epoch学习率×0.1
+
+# 4. 增强训练循环（含验证集）
+train_losses = []
+val_accuracies = []
+
+for epoch in range(100):
+    # 训练模式
+    model.train()
+    outputs = model(X_train)
+    loss = criterion(outputs, y_train)
+    
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    scheduler.step()  # 更新学习率
+    
+    # 评估模式
+    model.eval()
+    with torch.no_grad():
+        val_outputs = model(X_test)
+        val_preds = (val_outputs > 0.5).float()
+        acc = (val_preds == y_test).float().mean()
+    
+    # 记录指标
+    train_losses.append(loss.item())
+    val_accuracies.append(acc.item())
+    
+    if (epoch+1) % 10 == 0:
+        print(f'Epoch [{epoch+1}/100] | Loss: {loss.item():.4f} | Val Acc: {acc.item():.4f}')
+
+# 5. 综合可视化
+plt.figure(figsize=(12,5))
+plt.subplot(1,2,1)
+plt.plot(train_losses)
+plt.title('Training Loss')
+plt.subplot(1,2,2)
+plt.plot(val_accuracies)
+plt.title('Validation Accuracy')
+plt.show()
+
+# ====================== 高级技巧模板 ======================
+# 1. 数据增强（示例：图像数据）
+transform = torchvision.transforms.Compose([
+    torchvision.transforms.RandomHorizontalFlip(),
+    torchvision.transforms.RandomRotation(10),
+    torchvision.transforms.ToTensor(),
+])
+
+# 2. 模型保存与加载
+torch.save(model.state_dict(), 'best_model.pth')  # 保存
+model.load_state_dict(torch.load('best_model.pth'))  # 加载
+
+# 3. GPU加速
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = model.to(device)
+X_train, y_train = X_train.to(device), y_train.to(device)
+
+# 4. 自定义学习率策略
+custom_scheduler = optim.lr_scheduler.LambdaLR(
+    optimizer,
+    lr_lambda=lambda epoch: 0.95 ** epoch  # 指数衰减
+)
+
+# 5. 梯度裁剪（防止梯度爆炸）
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+# 6. 早停机制（Early Stopping）
+best_loss = float('inf')
+patience = 5
+trigger_times = 0
+
+for epoch in range(100):
+    # ... 训练过程 ...
+    if val_loss < best_loss:
+        best_loss = val_loss
+        trigger_times = 0
+    else:
+        trigger_times += 1
+        if trigger_times >= patience:
+            print("Early stopping!")
+            break
+代码说明与使用技巧：
+
+基础组件模块：
+
+完整演示前向传播、反向传播流程
+
+包含激活函数(ReLU, Sigmoid)的典型应用
+
+展示损失函数(BCELoss)和优化器(SGD)的基础配置
+
+深度网络模块：
+
+实现多层感知机(MLP)架构
+
+包含Dropout和BatchNorm等实用技术
+
+展示Adam优化器与学习率调度器的配合使用
+
+增加验证集评估和综合可视化
+
+高级技巧模块：
+
+数据增强方法（以图像为例）
+
+模型保存与加载的标准流程
+
+GPU加速使用方法
+
+自定义学习率策略示例
+
+梯度裁剪和早停机制实现
+
+使用建议：
+
+数据适配：修改输入维度（20→实际特征数）
+
+参数调整：
+
+学习率：尝试0.1, 0.01, 0.001等不同量级
+
+批量大小：通常32/64/128，根据显存调整
+
+网络深度：通过增减全连接层调整

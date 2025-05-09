@@ -1,0 +1,263 @@
+# ====================== CNN图像分类模板 ======================
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+from torchvision import transforms, datasets
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+
+# 1. 数据准备与增强
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+val_transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# 示例数据集（需替换为实际数据路径）
+train_set = datasets.ImageFolder('path/to/train', transform=train_transform)
+val_set = datasets.ImageFolder('path/to/val', transform=val_transform)
+
+train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
+val_loader = DataLoader(val_set, batch_size=32)
+
+# 2. 自定义CNN模型
+class SimpleCNN(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, 3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1)
+        )
+        self.classifier = nn.Linear(256, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        return self.classifier(x)
+
+# 3. 迁移学习模板（ResNet示例）
+def create_resnet(num_classes):
+    model = torchvision.models.resnet18(pretrained=True)
+    # 冻结底层参数
+    for param in model.parameters():
+        param.requires_grad = False
+    # 修改最后一层
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+# 4. 训练配置
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = create_resnet(num_classes=10).to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+
+# 5. 训练循环
+best_acc = 0.0
+for epoch in range(20):
+    # 训练阶段
+    model.train()
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+    
+    # 验证阶段
+    model.eval()
+    total, correct = 0, 0
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (preds == labels).sum().item()
+    
+    acc = correct / total
+    print(f'Epoch {epoch+1}: Val Acc {acc:.4f}')
+    if acc > best_acc:
+        best_acc = acc
+        torch.save(model.state_dict(), 'best_model.pth')
+    scheduler.step()
+
+# ====================== 目标检测模板（YOLOv5示例）======================
+# 需安装torch和ultralytics包：pip install ultralytics
+from ultralytics import YOLO
+import cv2
+
+# 1. 模型初始化
+model = YOLO('yolov5s.yaml')  # 从头训练
+# model = YOLO('yolov5s.pt')  # 加载预训练模型
+
+# 2. 模型训练
+results = model.train(
+    data='coco128.yaml',
+    epochs=50,
+    imgsz=640,
+    batch_size=16,
+    device='0'  # 使用GPU
+)
+
+# 3. 模型推理
+img = cv2.imread('test.jpg')
+results = model(img)
+result_img = results[0].plot()  # 可视化结果
+cv2.imwrite('result.jpg', result_img)
+
+# ====================== 图像分割模板（U-Net实现）======================
+import torch.nn.functional as F
+
+class UNet(nn.Module):
+    def __init__(self, in_channels=3, out_channels=1):
+        super().__init__()
+        # 编码器
+        self.enc1 = self.conv_block(in_channels, 64)
+        self.enc2 = self.conv_block(64, 128)
+        self.enc3 = self.conv_block(128, 256)
+        self.pool = nn.MaxPool2d(2)
+        
+        # 解码器
+        self.up3 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.dec3 = self.conv_block(256, 128)
+        self.up2 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        self.dec2 = self.conv_block(128, 64)
+        self.final = nn.Conv2d(64, out_channels, 1)
+    
+    def conv_block(self, in_c, out_c):
+        return nn.Sequential(
+            nn.Conv2d(in_c, out_c, 3, padding=1),
+            nn.BatchNorm2d(out_c),
+            nn.ReLU(),
+            nn.Conv2d(out_c, out_c, 3, padding=1),
+            nn.BatchNorm2d(out_c),
+            nn.ReLU()
+        )
+    
+    def forward(self, x):
+        # 编码
+        e1 = self.enc1(x)
+        e2 = self.enc2(self.pool(e1))
+        e3 = self.enc3(self.pool(e2))
+        
+        # 解码
+        d3 = self.up3(e3)
+        d3 = torch.cat([d3, e2], dim=1)
+        d3 = self.dec3(d3)
+        
+        d2 = self.up2(d3)
+        d2 = torch.cat([d2, e1], dim=1)
+        d2 = self.dec2(d2)
+        
+        return torch.sigmoid(self.final(d2))
+
+# 训练配置（需准备分割数据集）
+seg_model = UNet().to(device)
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(seg_model.parameters(), lr=1e-4)
+
+# 评估指标（IoU）
+def iou_score(pred, target):
+    intersection = (pred & target).float().sum()
+    union = (pred | target).float().sum()
+    return (intersection + 1e-6) / (union + 1e-6)
+
+# ====================== 可视化工具 ======================
+def show_predictions(image, mask, pred):
+    plt.figure(figsize=(10,5))
+    plt.subplot(131)
+    plt.imshow(image.permute(1,2,0))
+    plt.title('Input')
+    plt.subplot(132)
+    plt.imshow(mask.squeeze(), cmap='gray')
+    plt.title('Ground Truth')
+    plt.subplot(133)
+    plt.imshow(pred.squeeze().detach().cpu(), cmap='gray')
+    plt.title('Prediction')
+    plt.show()
+
+# 保存最佳模型
+torch.save({
+    'model_state_dict': seg_model.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+}, 'best_seg_model.pth')
+代码说明与使用技巧：
+
+CNN分类模板：
+
+包含完整的数据增强流程
+
+提供自定义CNN和ResNet迁移学习两种实现
+
+集成学习率调度和模型保存机制
+
+支持多GPU训练（需修改device参数）
+
+目标检测模板：
+
+基于YOLOv5实现快速目标检测
+
+支持从头训练和预训练模型微调
+
+自动生成可视化检测结果
+
+可扩展支持COCO、VOC等标准数据集
+
+图像分割模板：
+
+经典U-Net架构实现
+
+包含跳跃连接和转置卷积
+
+集成IoU评估指标
+
+提供预测结果可视化工具
+
+高级应用技巧：
+
+数据准备建议：
+
+分类任务使用ImageFolder格式组织数据
+
+检测任务使用YOLO格式标注（txt文件）
+
+分割任务需准备图像-掩膜对
+
+模型优化策略：
+
+尝试不同backbone（ResNet34/50、MobileNetV3）
+
+调整学习率策略（Cosine退火、OneCycle）
+
+添加正则化（Dropout、L2权重衰减）
+
+使用混合精度训练（torch.cuda.amp）
+
+部署优化：
+
+使用TorchScript导出模型
+
+进行ONNX格式转换
+
+应用模型剪枝和量化
+
+使用TensorRT加速推理
