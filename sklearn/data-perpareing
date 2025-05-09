@@ -1,0 +1,84 @@
+標準化
+
+import pandas as pd
+# train_test_split：將數據分割為訓練集和測試集
+from sklearn.model_selection import train_test_split
+# StandardScaler：標準化特徵（將數據縮放到均值0，方差1）
+from sklearn.preprocessing import StandardScaler
+
+# 從CSV文件加載數據（如果文件在其他路徑，需替換為正確路徑如：'C:/data/your_data.csv'）
+# pd.read_csv() 是pandas讀取CSV文件的方法，返回一個DataFrame（表格型數據結構）
+data = pd.read_csv("your_data.csv")
+
+# 分割數據為特徵（X）和目標變量（y）
+# 假設數據中目標變量的列名為"target"
+# axis=1 表示刪除列（axis=0是刪除行）
+X = data.drop("target", axis=1)  # X包含所有特徵（輸入數據）
+y = data["target"]              # y包含目標變量（要預測的結果）
+
+# 將數據分為訓練集（80%）和測試集（20%）
+# train_test_split參數說明：
+# - test_size: 測試集比例（0.2表示20%）
+# - random_state: 隨機種子（固定數值可確保每次分割結果相同，便於復現）
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# random_state=42: 固定隨機種子，讓每次分割結果一致
+
+# 特徵標準化（適用於需要計算距離的模型，如KNN、SVM、邏輯回歸）
+# 注意：僅對特徵（X）做標準化，目標變量（y）不需要
+# 為什麼要標準化？因為不同特徵的數值範圍差異可能導致模型偏差
+"""
+fit_transform()：在訓練集上計算參數(如均值和方差)並立即應用轉換
+transform()：在測試集上使用已經計算好的參數(確保訓練和測試的轉換方式一致)
+需要標準化的模型:線性回歸、邏輯回歸、SVM、KNN、神經網絡
+不需要標準化的模型:決策樹、隨機森林、XGBoost(樹模型不受特徵尺度影響)
+"""
+scaler = StandardScaler()  # 初始化標準化器
+X_train = scaler.fit_transform(X_train)  # 在訓練集上計算均值方差，並轉換數據
+X_test = scaler.transform(X_test) 
+
+歸一化
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler  # 關鍵：使用MinMaxScaler進行歸一化
+import matplotlib.pyplot as plt  # 用於可視化
+
+# 加載數據（替換為你的數據文件路徑）
+data = pd.read_csv("your_data.csv")
+
+# 分割特徵和目標變量
+X = data.drop("target", axis=1)  # 假設目標列名為"target"
+y = data["target"]
+
+# 分割訓練集和測試集（注意：先分割再歸一化，避免數據洩漏）
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, 
+    test_size=0.2, 
+    random_state=42  # 固定隨機種子確保可復現性
+)
+
+# 初始化歸一化器（預設範圍 [0, 1]，可自定義如 feature_range=(-1, 1)）
+scaler = MinMaxScaler()  
+
+# 在訓練集上擬合並轉換（永遠不要對測試集使用fit_transform！）
+X_train_normalized = scaler.fit_transform(X_train)  # 訓練集：計算min/max並歸一化
+
+# 對測試集僅做轉換（使用訓練集的min/max參數）
+X_test_normalized = scaler.transform(X_test)        # 測試集：直接應用訓練集的歸一化
+
+# 可選：將歸一化後的數據轉回DataFrame（保留列名）
+columns = X_train.columns  # 獲取原始特徵列名
+X_train_normalized = pd.DataFrame(X_train_normalized, columns=columns)
+X_test_normalized = pd.DataFrame(X_test_normalized, columns=columns)
+
+"""
+適用模型：
+    神經網絡（梯度下降優化需要均勻的特徵尺度）
+    K近鄰（KNN，距離計算受特徵尺度影響）
+    支持向量機（SVM）
+    主成分分析（PCA，受方差影響）
+數據特性：
+    特徵尺度差異大（如年齡 [0-100] vs 收入 [0-1,000,000]）
+    數據分佈不遵循正態分布
+    無嚴重異常值（歸一化對異常值敏感！若有異常值，改用標準化 StandardScaler）
+"""
