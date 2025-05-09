@@ -1,0 +1,190 @@
+一、常用評估指標模板
+1. 分類問題指標
+
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, 
+    f1_score, roc_auc_score, confusion_matrix
+)
+
+# 假設 y_true 為真實標籤，y_pred 為模型預測標籤，y_prob 為預測概率（二分類）
+def evaluate_classification(y_true, y_pred, y_prob=None):
+    print(f"準確率 (Accuracy): {accuracy_score(y_true, y_pred):.4f}")
+    print(f"精確率 (Precision): {precision_score(y_true, y_pred):.4f}")  # 側重減少假陽性（如垃圾郵件檢測）
+    print(f"召回率 (Recall): {recall_score(y_true, y_pred):.4f}")        # 側重減少假陰性（如疾病篩查）
+    print(f"F1-Score: {f1_score(y_true, y_pred):.4f}")                   # 平衡 Precision 和 Recall
+    
+    if y_prob is not None:  # 僅適用二分類
+        print(f"AUC-ROC: {roc_auc_score(y_true, y_prob):.4f}")           # 評估排序能力
+    
+    # 混淆矩陣可視化
+    cm = confusion_matrix(y_true, y_pred)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.show()
+
+# 使用範例
+evaluate_classification(y_test, y_pred, y_prob)
+
+2. 回歸問題指標
+
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+def evaluate_regression(y_true, y_pred):
+    print(f"MAE: {mean_absolute_error(y_true, y_pred):.4f}")          # 對異常值較不敏感
+    print(f"MSE: {mean_squared_error(y_true, y_pred):.4f}")           # 放大大誤差影響
+    print(f"RMSE: {np.sqrt(mean_squared_error(y_true, y_pred)):.4f}") # 與目標同單位
+    print(f"R²: {r2_score(y_true, y_pred):.4f}")                      # 解釋變異比例
+
+二、檢測過擬合與欠擬合
+1. 學習曲線（Learning Curve）
+
+from sklearn.model_selection import learning_curve
+import numpy as np
+
+def plot_learning_curve(model, X, y):
+    train_sizes, train_scores, val_scores = learning_curve(
+        model, X, y, cv=5, scoring='accuracy', 
+        train_sizes=np.linspace(0.1, 1.0, 10)
+    )
+    
+    plt.figure(figsize=(10,6))
+    plt.plot(train_sizes, np.mean(train_scores, axis=1), label='Training Score')
+    plt.plot(train_sizes, np.mean(val_scores, axis=1), label='Validation Score')
+    plt.fill_between(train_sizes, np.mean(train_scores, axis=1) - np.std(train_scores, axis=1),
+                     np.mean(train_scores, axis=1) + np.std(train_scores, axis=1), alpha=0.1)
+    plt.fill_between(train_sizes, np.mean(val_scores, axis=1) - np.std(val_scores, axis=1),
+                     np.mean(val_scores, axis=1) + np.std(val_scores, axis=1), alpha=0.1)
+    plt.title("Learning Curve")
+    plt.xlabel("Training Examples")
+    plt.ylabel("Score")
+    plt.legend()
+    plt.show()
+
+# 使用範例：過擬合模型（訓練分數高，驗證分數低）
+plot_learning_curve(overfit_model, X, y)
+
+"""
+2. 解決策略對照表
+問題	特徵	                解決方案
+過擬合	訓練分數 >> 驗證分數	  - 增加數據量
+                                - 正則化（L1/L2）
+                                - 減少模型複雜度（如降低樹的深度）
+欠擬合	訓練分數 ≈ 驗證分數，且兩者均低	- 增加特徵（特徵工程）
+                                     - 增加模型複雜度（如更多神經層）
+                                     - 減少正則化強度
+"""
+
+三、超參數調整模板
+1. 網格搜索（GridSearchCV）
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+
+# 定義參數網格
+param_grid = {
+    'n_estimators': [50, 100, 200],  # 樹的數量
+    'max_depth': [None, 10, 20],      # 單棵樹最大深度
+    'min_samples_split': [2, 5]       # 節點最小分割樣本數
+}
+
+# 初始化模型與搜索器
+model = RandomForestClassifier(random_state=42)
+grid_search = GridSearchCV(
+    estimator=model, 
+    param_grid=param_grid, 
+    cv=5,                            # 5 折交叉驗證
+    scoring='f1',                    # 選擇評估指標
+    n_jobs=-1                        # 使用所有 CPU 核心
+)
+
+# 執行搜索
+grid_search.fit(X_train, y_train)
+
+# 輸出最佳結果
+print(f"最佳參數: {grid_search.best_params_}")
+print(f"最佳 F1 分數: {grid_search.best_score_:.4f}")
+
+# 使用最佳模型預測
+best_model = grid_search.best_estimator_
+y_pred = best_model.predict(X_test)
+
+2. 隨機搜索（RandomizedSearchCV）
+
+from sklearn.model_selection import RandomizedSearchCV
+from scipy.stats import randint
+
+# 定義參數分佈（適用於大參數空間）
+param_dist = {
+    'n_estimators': randint(50, 500),
+    'max_depth': [None, 10, 20, 50],
+    'min_samples_split': randint(2, 20)
+}
+
+search = RandomizedSearchCV(
+    model, param_dist, n_iter=50,  # 隨機嘗試 50 組參數
+    cv=3, scoring='f1', n_jobs=-1
+)
+search.fit(X_train, y_train)
+
+四、交叉驗證模板
+1. K 折交叉驗證
+
+from sklearn.model_selection import cross_val_score
+
+model = LogisticRegression()
+scores = cross_val_score(
+    model, X, y, 
+    cv=5,              # 分 5 折
+    scoring='accuracy'  # 可替換為 precision, recall 等
+)
+
+print(f"交叉驗證準確率: {scores.mean():.4f} (±{scores.std():.4f})")  # 輸出均值與標準差
+
+2. 分層 K 折（Stratified K-Fold，適用類別不平衡）
+
+from sklearn.model_selection import StratifiedKFold
+
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+scores = cross_val_score(model, X, y, cv=skf, scoring='f1')
+
+五、實戰技巧總結
+1. 指標選擇原則
+類別不平衡數據：優先使用 F1-Score 或 AUC-ROC
+
+回歸任務：關注 RMSE（與目標同單位）和 R²（解釋力）
+
+2. 超參數調整注意事項
+優先級：先調重要參數（如隨機森林的 n_estimators 和 max_depth）
+
+計算資源：GridSearch 耗時，大參數空間改用 RandomizedSearch
+
+早停機制：深度學習中可用 EarlyStopping 回調函數
+
+3. 避免數據洩漏
+預處理步驟（如標準化、填充缺失值）應在交叉驗證的每個 fold 內獨立進行
+
+正確流程：
+
+pipeline = make_pipeline(StandardScaler(), LogisticRegression())  # 封裝預處理與模型
+cross_val_score(pipeline, X, y, cv=5)  # 確保每次交叉驗證正確分割
+
+六、進階應用：自訂評估指標
+
+from sklearn.metrics import make_scorer
+
+# 自訂指標範例：自定義損失函數
+def custom_loss(y_true, y_pred):
+    return np.mean(np.abs(y_true - y_pred) ** 3)  # 三次方絕對誤差
+
+custom_scorer = make_scorer(custom_loss, greater_is_better=False)
+
+# 應用於 GridSearch
+grid = GridSearchCV(model, param_grid, scoring=custom_scorer)
+
+開始
+├─ 數據預處理 → 分割為訓練集/測試集
+├─ 基準模型訓練 → 評估初始表現
+├─ 檢測過擬合/欠擬合 → 調整模型複雜度
+├─ 超參數調整（Grid/Random Search）→ 交叉驗證
+└─ 最終模型評估 → 測試集驗證
