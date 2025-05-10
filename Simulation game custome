@@ -1,0 +1,348 @@
+# ====================== 数据加载与探索性分析 ======================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, 
+                             f1_score, roc_auc_score, roc_curve, 
+                             confusion_matrix, classification_report)
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from scipy import stats
+import time
+
+# 1. 数据加载
+df = pd.read_csv('customer_churn.csv')
+
+# 2. 初步数据探索
+print("数据概览：")
+print(df.head())
+print("\n数据基本信息：")
+print(df.info())
+print("\n统计描述：")
+print(df.describe(include='all'))
+
+# 3. 数据分布可视化
+plt.figure(figsize=(15, 10))
+
+# 数值特征分布
+numeric_features = ['age', 'subscription_length', 'monthly_bill', 'total_usage', 'service_complaints']
+for i, col in enumerate(numeric_features, 1):
+    plt.subplot(3, 2, i)
+    sns.histplot(df[col], kde=True)
+    plt.title(f'{col} Distribution')
+
+plt.tight_layout()
+plt.show()
+
+# 分类特征分布
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+sns.countplot(x='gender', data=df)
+plt.title('Gender Distribution')
+
+plt.subplot(1, 2, 2)
+sns.countplot(x='churn', data=df)
+plt.title('Churn Distribution')
+plt.show()
+
+# 4. 缺失值处理
+print("\n缺失值统计：")
+print(df.isnull().sum())
+
+# 简单填充（根据实际情况调整）
+df.fillna({
+    'age': df['age'].median(),
+    'monthly_bill': df['monthly_bill'].mean(),
+    'service_complaints': 0
+}, inplace=True)
+
+# 5. 异常值处理（使用Z-score方法）
+z_scores = stats.zscore(df[numeric_features])
+abs_z_scores = np.abs(z_scores)
+filtered_entries = (abs_z_scores < 3).all(axis=1)
+df = df[filtered_entries]
+
+# 6. 特征相关性分析
+plt.figure(figsize=(12, 8))
+corr_matrix = df[numeric_features + ['churn']].corr()
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm')
+plt.title('Feature Correlation Matrix')
+plt.show()
+
+# ====================== 特征工程 ======================
+# 删除无关特征
+df.drop('customer_id', axis=1, inplace=True)
+
+# 定义预处理流程
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), numeric_features),
+        ('cat', OneHotEncoder(drop='first'), ['gender'])
+    ])
+
+# 创建新特征（示例）
+df['usage_per_month'] = df['total_usage'] / df['subscription_length']
+df['bill_per_usage'] = df['monthly_bill'] / df['total_usage'].replace(0, 1e-6)
+
+# 划分数据集
+X = df.drop('churn', axis=1)
+y = df['churn']
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y)
+
+# ====================== 模型训练与评估 ======================
+models = {
+    'Logistic Regression': LogisticRegression(class_weight='balanced'),
+    'Random Forest': RandomForestClassifier(class_weight='balanced'),
+    'Gradient Boosting': GradientBoostingClassifier()
+}
+
+# 存储评估结果
+results = []
+
+# 基础模型训练与评估
+for name, model in models.items():
+    start_time = time.time()
+    
+    # 创建完整流水线
+    pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('classifier', model)
+    ])
+    
+    pipeline.fit(X_train, y_train)
+    y_pred = pipeline.predict(X_test)
+    y_proba = pipeline.predict_proba(X_test)[:, 1]
+    
+    # 计算指标
+    metrics = {
+        'Model': name,
+        'Accuracy': accuracy_score(y_test, y_pred),
+        'Precision': precision_score(y_test, y_pred),
+        'Recall': recall_score(y_test, y_pred),
+        'F1': f1_score(y_test, y_pred),
+        'AUC': roc_auc_score(y_test, y_proba),
+        'Time (s)': time.time() - start_time
+    }
+    results.append(metrics)
+
+# ====================== 模型优化 ======================
+# 随机森林参数网格
+rf_params = {
+    'classifier__n_estimators': [100, 200],
+    'classifier__max_depth': [None, 5, 10],
+    'classifier__min_samples_split': [2, 5]
+}
+
+# 梯度提升参数网格
+gb_params = {
+    'classifier__n_estimators': [100, 200],
+    'classifier__learning_rate': [0.01, 0.1],
+    'classifier__max_depth': [3, 5]
+}
+
+# 优化随机森林
+rf_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', RandomForestClassifier(class_weight='balanced'))
+])
+
+rf_search = RandomizedSearchCV(
+    rf_pipeline, rf_params, 
+    n_iter=10, cv=3, 
+    scoring='f1', random_state=42
+)
+rf_search.fit(X_train, y_train)
+
+# 优化梯度提升
+gb_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', GradientBoostingClassifier())
+])
+
+gb_search = GridSearchCV(
+    gb_pipeline, gb_params, 
+    cv=3, scoring='f1'
+)
+gb_search.fit(X_train, y_train)
+
+# 获取最佳模型
+best_models = {
+    'Random Forest (Tuned)': rf_search.best_estimator_,
+    'Gradient Boosting (Tuned)': gb_search.best_estimator_
+}
+
+# 评估优化后模型
+for name, model in best_models.items():
+    start_time = time.time()
+    
+    y_pred = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
+    
+    metrics = {
+        'Model': name,
+        'Accuracy': accuracy_score(y_test, y_pred),
+        'Precision': precision_score(y_test, y_pred),
+        'Recall': recall_score(y_test, y_pred),
+        'F1': f1_score(y_test, y_pred),
+        'AUC': roc_auc_score(y_test, y_proba),
+        'Time (s)': time.time() - start_time
+    }
+    results.append(metrics)
+
+# ====================== 结果展示 ======================
+# 创建结果DataFrame
+results_df = pd.DataFrame(results)
+print("\n模型性能比较：")
+print(results_df.sort_values(by='F1', ascending=False))
+
+# 绘制最佳模型的ROC曲线
+best_model = gb_search.best_estimator_
+y_proba = best_model.predict_proba(X_test)[:, 1]
+fpr, tpr, _ = roc_curve(y_test, y_proba)
+
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, label=f'AUC = {roc_auc_score(y_test, y_proba):.2f}')
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve - Gradient Boosting (Tuned)')
+plt.legend()
+plt.show()
+
+# 特征重要性分析（以随机森林为例）
+rf_model = rf_search.best_estimator_.named_steps['classifier']
+feature_names = numeric_features + \
+               list(preprocessor.named_transformers_['cat'].get_feature_names_out()) + \
+               ['usage_per_month', 'bill_per_usage']
+
+plt.figure(figsize=(12, 6))
+sns.barplot(x=rf_model.feature_importances_, y=feature_names)
+plt.title('Feature Importance - Random Forest')
+plt.show()
+
+# 错误分析
+y_pred = best_model.predict(X_test)
+wrong_cases = X_test[y_pred != y_test]
+wrong_cases['true_label'] = y_test[y_pred != y_test]
+wrong_cases['pred_label'] = y_pred[y_pred != y_test]
+
+print("\n错误预测样本分析：")
+print(wrong_cases.describe())
+代码执行结果说明：
+
+数据探索阶段：
+
+显示数据前5行和基本统计信息
+
+可视化各特征的分布情况
+
+显示特征相关性热力图（例如可能发现service_complaints与流失高度相关）
+
+模型比较结果（示例）：
+
+                     Model  Accuracy  Precision  Recall    F1   AUC  Time (s)
+2       Gradient Boosting      0.87       0.83    0.78  0.80  0.93      5.2
+1          Random Forest      0.85       0.80    0.75  0.77  0.91      3.8
+0  Logistic Regression      0.82       0.76    0.70  0.73  0.88      1.5
+优化后结果：
+
+                     Model  Accuracy  Precision  Recall    F1   AUC  Time (s)
+3  Gradient Boosting (Tuned)      0.89       0.85    0.80  0.82  0.94      8.1
+4    Random Forest (Tuned)      0.87       0.83    0.78  0.80  0.92      6.5
+关键步骤解释：
+
+特征工程创新：
+
+创建新的业务特征：usage_per_month（每月使用量）、bill_per_usage（单位使用成本）
+
+使用ColumnTransformer构建统一的预处理流程
+
+处理类别不平衡问题（class_weight='balanced'）
+
+模型优化策略：
+
+对树模型使用特征重要性分析
+
+对线性模型使用正则化
+
+采用不同的搜索策略（网格搜索 vs 随机搜索）
+
+评估指标选择：
+
+使用F1 Score作为主要优化指标（适合不平衡数据）
+
+同时保留AUC评估整体排序能力
+
+记录训练时间评估模型效率
+
+扩展建议：
+
+处理类别不平衡的进阶方法：
+
+python
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import make_pipeline
+
+# 在流水线中添加过采样
+pipeline = make_pipeline(
+    preprocessor,
+    SMOTE(random_state=42),
+    model
+)
+深度学习模型尝试：
+
+python
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+
+def create_nn():
+    model = Sequential([
+        Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
+        Dropout(0.3),
+        Dense(32, activation='relu'),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam', 
+                loss='binary_crossentropy',
+                metrics=['accuracy', tf.keras.metrics.AUC()])
+    return model
+模型解释工具：
+
+python
+import shap
+
+# 创建SHAP解释器
+explainer = shap.TreeExplainer(best_model.named_steps['classifier'])
+shap_values = explainer.shap_values(preprocessor.transform(X_test))
+
+# 可视化单个预测解释
+shap.force_plot(explainer.expected_value[1], 
+               shap_values[1][0], 
+               feature_names=feature_names)
+常见问题解答：
+
+Q1: 如何处理高基数分类特征？
+A: 使用目标编码（Target Encoding）或嵌入层（Embedding Layer）
+
+Q2: 如何选择特征工程方法？
+A: 基于业务理解和EDA结果，优先创建具有业务意义的组合特征
+
+Q3: 为什么需要标准化数值特征？
+A: 保证不同量纲的特征具有可比性，特别是对基于距离的算法（如SVM、KNN）和梯度下降优化的模型
+
+Q4: 如何部署最佳模型？
+A: 使用joblib保存流水线对象，确保包含所有预处理步骤：
+
+python
+import joblib
+joblib.dump(best_model, 'churn_model.pkl')
+
+# 加载时保持相同流程
+loaded_model = joblib.load('churn_model.pkl')
